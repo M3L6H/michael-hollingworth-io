@@ -10,3 +10,10 @@
 # control as they are data points which are potentially sensitive and subject
 # to change depending on the environment.
 *.tfvars
+
+# Exclude all plan files
+*.tfplan
+*.tfplan.*
+
+# Exclude all output files
+*.tfout
