@@ -17,7 +17,7 @@ variable "project" {
 
 variable "env" {
   type        = string
-  description = "The environment to build provision"
+  description = "The environment to provision"
   default     = "dev"
 
   validation {
@@ -31,6 +31,17 @@ variable "server_cidr_block" {
   description = "The CIDR block used by the server VPC"
 }
 
+locals {
+  # Stack name derived from project name and environment
+  stack = "${var.project}-${var.env}"
+}
+
+locals {
+  default_tags = {
+    Stack = local.stack
+  }
+}
+
 provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
@@ -38,6 +49,8 @@ provider "aws" {
 module "vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
-  name = "${var.project}-server-vpc-${var.env}"
+  name = "${local.stack}-server-vpc"
   cidr = var.server_cidr_block
+
+  tags = local.default_tags
 }
