@@ -26,6 +26,11 @@ variable "env" {
   }
 }
 
+variable "client_cidr_block" {
+  type        = string
+  description = "The CIDR block used by the client VPC"
+}
+
 variable "server_cidr_block" {
   type        = string
   description = "The CIDR block used by the server VPC"
@@ -46,7 +51,16 @@ provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
 
-module "vpc" {
+module "client-vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+
+  name = "${local.stack}-client-vpc"
+  cidr = var.client_cidr_block
+
+  tags = local.default_tags
+}
+
+module "server-vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
   name = "${local.stack}-server-vpc"
