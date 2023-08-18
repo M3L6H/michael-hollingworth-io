@@ -36,6 +36,11 @@ variable "server_vpc_first_ip" {
   description = "The first IP for the server VPC"
 }
 
+variable "client_kp_public_key" {
+  type        = string
+  description = "Client KP public key"
+}
+
 variable "client_asg_min_size" {
   type        = number
   description = "Client ASG min size"
@@ -125,12 +130,51 @@ module "server_vpc" {
   tags = local.default_tags
 }
 
+resource "aws_key_pair" "client_asg" {
+  key_name   = "${local.stack}-client-kp"
+  public_key = var.client_kp_public_key
+
+  tags = local.default_tags
+}
+
+resource "aws_security_group" "client_asg" {
+  name        = "${local.stack}-client-asg-sg"
+  description = "Client ASG security group"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = local.default_tags
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ssh" {
+  security_group_id = aws_security_group.client_asg.id
+
+  cidr_ipv4   = "0.0.0.0/0"
+  from_port   = 22
+  ip_protocol = "tcp"
+  to_port     = 22
+
+  tags = local.default_tags
+}
+
+resource "aws_vpc_security_group_egress_rule" "all" {
+  security_group_id = aws_security_group.client_asg.id
+
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = -1
+
+  tags = local.default_tags
+}
+
 resource "aws_launch_template" "client_asg" {
   name        = "${local.stack}-client-asg-lt"
   description = "Client ASG launch template"
 
   image_id      = var.client_asg_ami
   instance_type = var.client_asg_instance_type
+
+  key_name = aws_key_pair.client_asg.key_name
+
+  vpc_security_group_ids = [aws_security_group.client_asg.id]
 }
 
 resource "aws_autoscaling_group" "client_asg" {
@@ -138,9 +182,9 @@ resource "aws_autoscaling_group" "client_asg" {
 
   name = "${local.stack}-client-asg-${local.az_suffixes[count.index]}"
 
-  min_size                  = 0
-  max_size                  = 1
-  desired_capacity          = 1
+  min_size                  = var.client_asg_min_size
+  max_size                  = var.client_asg_max_size
+  desired_capacity          = var.client_asg_desired
   wait_for_capacity_timeout = 0
   health_check_type         = "EC2"
   vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
