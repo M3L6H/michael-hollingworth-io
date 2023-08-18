@@ -76,6 +76,10 @@ data "aws_region" "current" {
   provider = aws
 }
 
+data "aws_caller_identity" "current" {
+  provider = aws
+}
+
 locals {
   # Split the client/server vpc first IPs into parts
   client_vpc_first_ip_parts = split(".", var.client_vpc_first_ip)
@@ -105,6 +109,9 @@ locals {
   client_vpc_cidr_block = "${var.client_vpc_first_ip}/${local.main_vpc_ip_network_prefix}"
   client_subnet_cidrs   = [for p in local.client_subnet_ip_prefixes : "${local.client_vpc_first_ip_parts[0]}.${local.client_vpc_first_ip_parts[1]}.${p}.0/${local.subnet_ip_network_prefix}"]
   server_vpc_cidr_block = "${var.server_vpc_first_ip}/${local.main_vpc_ip_network_prefix}"
+
+  # Buckets
+  client_alb_access_logs_bucket = "${local.stack}-client-alb-access-logs"
 }
 
 module "client_vpc" {
@@ -135,6 +142,31 @@ resource "aws_key_pair" "client_asg" {
   public_key = var.client_kp_public_key
 
   tags = local.default_tags
+}
+
+resource "aws_security_group" "http_traffic" {
+  name        = "${local.stack}-client-http-sg"
+  description = "Allows HTTP and HTTPS traffic"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-http-sg"
+  })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "http" {
+  security_group_id = aws_security_group.http_traffic.id
+
+  description = "Allow all inbound HTTP traffic"
+
+  cidr_ipv4   = "0.0.0.0/0"
+  from_port   = 80
+  ip_protocol = "tcp"
+  to_port     = 80
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-http-in"
+  })
 }
 
 resource "aws_security_group" "client_asg" {
@@ -175,6 +207,72 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   })
 }
 
+module "client_alb_access_logs" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+
+  bucket = local.client_alb_access_logs_bucket
+
+  force_destroy            = true
+  control_object_ownership = true
+
+  attach_elb_log_delivery_policy    = true
+  attach_lb_log_delivery_policy     = true
+  attach_access_log_delivery_policy = true
+
+  access_log_delivery_policy_source_accounts = [data.aws_caller_identity.current.account_id]
+
+  lifecycle_rule = [
+    {
+      id      = "expire_all_files"
+      enabled = true
+
+      filter = {}
+
+      expiration = {
+        days = 10
+      }
+    }
+  ]
+
+  tags = merge(local.default_tags, {
+    Name = local.client_alb_access_logs_bucket
+  })
+}
+
+module "client_alb" {
+  source = "terraform-aws-modules/alb/aws"
+
+  name = "client-alb"
+
+  load_balancer_type = "application"
+
+  vpc_id          = module.client_vpc.vpc_id
+  subnets         = module.client_vpc.public_subnets
+  security_groups = [aws_security_group.http_traffic.id]
+
+  access_logs = {
+    bucket  = local.client_alb_access_logs_bucket
+    enabled = true
+  }
+
+  target_groups = [
+    {
+      name             = "client-tg"
+      backend_protocol = "HTTP"
+      backend_port     = 80
+      target_type      = "instance"
+    }
+  ]
+
+  http_tcp_listeners = [
+    {
+      port               = 80
+      protocol           = "HTTP"
+      target_group_index = 0
+    }
+  ]
+}
+
 resource "aws_launch_template" "client_asg" {
   name        = "${local.stack}-client-asg-lt"
   description = "Client ASG launch template"
@@ -186,7 +284,10 @@ resource "aws_launch_template" "client_asg" {
 
   user_data = filebase64("scripts/client_user_data.sh")
 
-  vpc_security_group_ids = [aws_security_group.client_asg.id]
+  vpc_security_group_ids = [
+    aws_security_group.client_asg.id,
+    aws_security_group.http_traffic.id
+  ]
 }
 
 resource "aws_autoscaling_group" "client_asg" {
@@ -201,6 +302,8 @@ resource "aws_autoscaling_group" "client_asg" {
   health_check_type         = "EC2"
   health_check_grace_period = 60
   vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
+
+  target_group_arns = module.client_alb.target_group_arns
 
   termination_policies  = ["OldestLaunchConfiguration", "OldestInstance", "Default"]
   max_instance_lifetime = 864000
@@ -226,12 +329,4 @@ resource "aws_autoscaling_group" "client_asg" {
     value               = aws_launch_template.client_asg.latest_version
     propagate_at_launch = true
   }
-}
-
-module "client_alb" {
-  source  = "terraform-aws-modules/alb/aws"
-
-  name = "${local.stack}-client-alb"
-
-  load_balancer_type = "application"
 }
