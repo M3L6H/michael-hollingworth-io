@@ -9,6 +9,8 @@ jobs:
   filter_client_files:
     name: Filter Client Files
     runs-on: ubuntu-latest
+    outputs:
+      files_changed: ${{ steps.changed-files.outputs.any_changed }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -18,17 +20,15 @@ jobs:
         uses: tj-actions/changed-files@v34
         with:
           files: client/**
-      - name: Run if any files have changed
-        if: steps.changed-files.outputs.any_changed == 'true'
-        run: echo "Client modified"
-      - name: No files have changed
-        if: steps.changed-files.outputs.any_changed != 'true'
-        run: exit 1
   unit_tests:
     name: Unit tests
     runs-on: ubuntu-latest
-    needs: [filter_client_files]
+    needs: filter_client_files
     steps:
+      - env:
+          FILES_CHANGED: ${{needs.filter_client_files.outputs.files_changed}}
+        run: |
+          [ "$FILES_CHANGED" != 'true' ] && exit 0
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
@@ -44,9 +44,13 @@ jobs:
   e2e_test:
     name: E2E tests
     runs-on: ubuntu-latest
-    needs: [filter_client_files]
+    needs: filter_client_files
     timeout-minutes: 60
     steps:
+      - env:
+          FILES_CHANGED: ${{needs.filter_client_files.outputs.files_changed}}
+        run: |
+          [ "$FILES_CHANGED" != 'true' ] && exit 0
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
