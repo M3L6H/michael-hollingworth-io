@@ -19,10 +19,10 @@ jobs:
         with:
           files: client/**
       - name: Run if any files have changed
-        if: steps.changed-files.outputs.any_changed == "true"
+        if: steps.changed-files.outputs.any_changed == 'true'
         run: echo "Client modified"
       - name: No files have changed
-        if: steps.changed-files.outputs.any_changed != "true"
+        if: steps.changed-files.outputs.any_changed != 'true'
         run: exit 1
   unit_tests:
     name: Unit tests
