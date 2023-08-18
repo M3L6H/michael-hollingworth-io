@@ -1,0 +1,47 @@
+name: client-pr
+run-name: Client workflow for ${{ github.ref_name }}
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+jobs:
+  install_dependencies:
+    name: Install dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+  unit_tests:
+    name: Unit tests
+    needs: install_dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run unit tests
+        working-directory: ./client
+        run: npm run test:unit:workflow
+  e2e_test:
+    name: E2E tests
+    needs: install_dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Install Playwright browsers
+        working-directory: ./client
+        run: npx playwright install --with-deps
+      - name: Run Playwright tests
+        working-directory: ./client
+        run: npm run test:e2e:workflow
+      - uses: actions/upload-artifact@v3
+        working-directory: ./client
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 2
