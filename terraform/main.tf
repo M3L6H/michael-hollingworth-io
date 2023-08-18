@@ -111,6 +111,8 @@ module "client_vpc" {
   azs            = local.azs
   public_subnets = local.client_subnet_cidrs
 
+  map_public_ip_on_launch = true
+
   tags = local.default_tags
 }
 
@@ -146,5 +148,11 @@ resource "aws_autoscaling_group" "client_asg" {
   launch_template {
     name    = aws_launch_template.client_asg.name
     version = "$Latest"
+  }
+
+  tag {
+    key                 = "Stack"
+    value               = local.stack
+    propagate_at_launch = true
   }
 }
