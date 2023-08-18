@@ -142,27 +142,37 @@ resource "aws_security_group" "client_asg" {
   description = "Client ASG security group"
   vpc_id      = module.client_vpc.vpc_id
 
-  tags = local.default_tags
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-asg-sg"
+  })
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ssh" {
   security_group_id = aws_security_group.client_asg.id
+
+  description = "Allow all inbound SSH traffic"
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 22
   ip_protocol = "tcp"
   to_port     = 22
 
-  tags = local.default_tags
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-asg-ssh-in"
+  })
 }
 
 resource "aws_vpc_security_group_egress_rule" "all" {
   security_group_id = aws_security_group.client_asg.id
 
+  description = "Allow all outbound traffic"
+
   cidr_ipv4   = "0.0.0.0/0"
   ip_protocol = -1
 
-  tags = local.default_tags
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-asg-all-out"
+  })
 }
 
 resource "aws_launch_template" "client_asg" {
