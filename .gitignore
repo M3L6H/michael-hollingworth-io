@@ -17,6 +17,9 @@ node_modules/
 playwright-report/
 test-results/
 
+# Build files
+dist/
+
 # Local .terraform directories
 .terraform/
 
