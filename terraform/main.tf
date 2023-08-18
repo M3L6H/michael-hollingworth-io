@@ -184,6 +184,8 @@ resource "aws_launch_template" "client_asg" {
 
   key_name = aws_key_pair.client_asg.key_name
 
+  user_data = filebase64("scripts/client_user_data.sh")
+
   vpc_security_group_ids = [aws_security_group.client_asg.id]
 }
 
@@ -197,10 +199,16 @@ resource "aws_autoscaling_group" "client_asg" {
   desired_capacity          = var.client_asg_desired
   wait_for_capacity_timeout = 0
   health_check_type         = "EC2"
+  health_check_grace_period = 60
   vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
 
   termination_policies  = ["OldestLaunchConfiguration", "OldestInstance", "Default"]
   max_instance_lifetime = 864000
+
+  instance_refresh {
+    strategy = "Rolling"
+    triggers = ["tag"]
+  }
 
   launch_template {
     name    = aws_launch_template.client_asg.name
@@ -212,4 +220,18 @@ resource "aws_autoscaling_group" "client_asg" {
     value               = local.stack
     propagate_at_launch = true
   }
+
+  tag {
+    key                 = "Launch Version"
+    value               = aws_launch_template.client_asg.latest_version
+    propagate_at_launch = true
+  }
+}
+
+module "client_alb" {
+  source  = "terraform-aws-modules/alb/aws"
+
+  name = "${local.stack}-client-alb"
+
+  load_balancer_type = "application"
 }
