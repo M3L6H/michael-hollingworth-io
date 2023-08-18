@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: [master]
 jobs:
-  install_dependencies:
-    name: Install dependencies
+  unit_tests:
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -19,20 +19,23 @@ jobs:
       - name: Install dependencies
         working-directory: ./client
         run: npm ci
-  unit_tests:
-    name: Unit tests
-    needs: install_dependencies
-    runs-on: ubuntu-latest
-    steps:
       - name: Run unit tests
         working-directory: ./client
         run: npm run test:unit:workflow
   e2e_test:
     name: E2E tests
-    needs: install_dependencies
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
       - name: Install Playwright browsers
         working-directory: ./client
         run: npx playwright install --with-deps
