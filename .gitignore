@@ -39,3 +39,6 @@ dist/
 
 # Exclude all output files
 *.tfout
+
+# Exclude all private keys
+*.pem
