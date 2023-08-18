@@ -36,6 +36,33 @@ variable "server_vpc_first_ip" {
   description = "The first IP for the server VPC"
 }
 
+variable "client_asg_min_size" {
+  type        = number
+  description = "Client ASG min size"
+}
+
+variable "client_asg_desired" {
+  type        = number
+  description = "Client ASG desired capacity"
+}
+
+variable "client_asg_max_size" {
+  type        = number
+  description = "Client ASG max size"
+}
+
+variable "client_asg_instance_type" {
+  type        = string
+  description = "Client ASG instance type"
+  default     = "t2.micro"
+}
+
+variable "client_asg_ami" {
+  type        = string
+  description = "Client ASG AMI"
+  default     = "ami-08a52ddb321b32a8c" # Amazon Linux 2023
+}
+
 provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
@@ -75,7 +102,7 @@ locals {
   server_vpc_cidr_block = "${var.server_vpc_first_ip}/${local.main_vpc_ip_network_prefix}"
 }
 
-module "client-vpc" {
+module "client_vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
   name = "${local.stack}-client-vpc"
@@ -87,11 +114,37 @@ module "client-vpc" {
   tags = local.default_tags
 }
 
-module "server-vpc" {
+module "server_vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
   name = "${local.stack}-server-vpc"
   cidr = local.server_vpc_cidr_block
 
   tags = local.default_tags
+}
+
+resource "aws_launch_template" "client_asg" {
+  name        = "${local.stack}-client-asg-lt"
+  description = "Client ASG launch template"
+
+  image_id      = var.client_asg_ami
+  instance_type = var.client_asg_instance_type
+}
+
+resource "aws_autoscaling_group" "client_asg" {
+  count = length(local.az_suffixes)
+
+  name = "${local.stack}-client-asg-${local.az_suffixes[count.index]}"
+
+  min_size                  = 0
+  max_size                  = 1
+  desired_capacity          = 1
+  wait_for_capacity_timeout = 0
+  health_check_type         = "EC2"
+  vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
+
+  launch_template {
+    name    = aws_launch_template.client_asg.name
+    version = "$Latest"
+  }
 }
