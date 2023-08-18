@@ -199,9 +199,12 @@ resource "aws_autoscaling_group" "client_asg" {
   health_check_type         = "EC2"
   vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
 
+  termination_policies  = ["OldestLaunchConfiguration", "OldestInstance", "Default"]
+  max_instance_lifetime = 864000
+
   launch_template {
     name    = aws_launch_template.client_asg.name
-    version = "$Latest"
+    version = aws_launch_template.client_asg.latest_version
   }
 
   tag {
