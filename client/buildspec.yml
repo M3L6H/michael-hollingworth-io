@@ -3,7 +3,7 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      node: 18.x
+      nodejs: 18.x
   pre_build:
     on-failure: ABORT
     commands:
