@@ -26,10 +26,6 @@ jobs:
     needs: filter_client_files
     if: needs.filter_client_files.outputs.files_changed == 'true'
     steps:
-      - env:
-          FILES_CHANGED: ${{needs.filter_client_files.outputs.files_changed}}
-        run: |
-          [ "$FILES_CHANGED" != 'true' ] && exit 0
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
@@ -41,7 +37,7 @@ jobs:
         run: npm ci
       - name: Run unit tests
         working-directory: ./client
-        run: npm run test:unit:workflow
+        run: npm run test:unit:ci
   e2e_test:
     name: E2E tests
     runs-on: ubuntu-latest
@@ -66,7 +62,7 @@ jobs:
         run: npm run build
       - name: Run Playwright tests
         working-directory: ./client
-        run: npm run test:e2e:workflow
+        run: npm run test:e2e:ci
       - uses: actions/upload-artifact@v3
         if: always()
         with:

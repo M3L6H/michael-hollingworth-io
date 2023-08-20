@@ -20,6 +20,10 @@ test-results/
 # Build files
 dist/
 
+# Quasar core related directories
+.quasar/
+quasar.config.*.temporary.compiled*/
+
 # Local .terraform directories
 .terraform/
 
