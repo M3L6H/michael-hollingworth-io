@@ -68,12 +68,6 @@ variable "client_asg_ami" {
   default     = "ami-08a52ddb321b32a8c" # Amazon Linux 2023
 }
 
-variable "github_token" {
-  type        = string
-  description = "Github token used by CodeBuild"
-  sensitive   = true
-}
-
 provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
@@ -119,6 +113,7 @@ locals {
   # Buckets
   client_alb_access_logs_bucket = "${local.stack}-client-alb-access-logs"
   client_codebuild_bucket       = "${local.stack}-client-codebuild"
+  client_codepipeline_bucket    = "${local.stack}-client-codepipeline"
 }
 
 module "client_vpc" {
@@ -434,6 +429,8 @@ data "aws_iam_policy_document" "client_codebuild" {
     resources = [
       module.client_codebuild_bucket.s3_bucket_arn,
       "${module.client_codebuild_bucket.s3_bucket_arn}/*",
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
     ]
   }
 }
@@ -455,17 +452,9 @@ resource "aws_codebuild_project" "client" {
   description   = "Client CodeBuild project"
   build_timeout = "5"
   service_role  = aws_iam_role.client_codebuild.arn
-  badge_enabled = true
 
   artifacts {
-    type = "S3"
-
-    bucket_owner_access = "FULL"
-
-    location       = local.client_codebuild_bucket
-    namespace_type = "BUILD_ID"
-    packaging      = "ZIP"
-    path           = "build"
+    type = "CODEPIPELINE"
   }
 
   secondary_artifacts {
@@ -493,7 +482,7 @@ resource "aws_codebuild_project" "client" {
 
     environment_variable {
       name  = "NODE_ENV"
-      value = "production"
+      value = "non_prod"
     }
   }
 
@@ -510,23 +499,209 @@ resource "aws_codebuild_project" "client" {
   }
 
   source {
-    type            = "GITHUB"
-    location        = "https://github.com/m3l6h/michael-hollingworth-io.git"
-    git_clone_depth = 1
-    buildspec       = "client/buildspec.yml"
-
-    report_build_status = true
+    type      = "CODEPIPELINE"
+    buildspec = "client/buildspec.yml"
   }
 
   tags = local.default_tags
 }
 
-output "client_build_badge" {
-  value = aws_codebuild_project.client.badge_url
+resource "aws_codedeploy_app" "client_codedeploy" {
+  compute_platform = "Server"
+  name             = "${local.stack}-client"
 }
 
-resource "aws_codebuild_source_credential" "github_token" {
-  auth_type   = "PERSONAL_ACCESS_TOKEN"
-  server_type = "GITHUB"
-  token       = var.github_token
+resource "aws_codedeploy_deployment_config" "client_codedeploy" {
+  deployment_config_name = "${local.stack}-client"
+
+  minimum_healthy_hosts {
+    type  = "HOST_COUNT"
+    value = 2
+  }
+}
+
+data "aws_iam_policy_document" "codedeploy_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codedeploy.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "codedeploy_role" {
+  name               = "codedeploy-role"
+  assume_role_policy = data.aws_iam_policy_document.codedeploy_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "AWSCodeDeployRole" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+  role       = aws_iam_role.codedeploy_role.name
+}
+
+resource "aws_codedeploy_deployment_group" "client_codedeploy" {
+  app_name               = aws_codedeploy_app.client_codedeploy.name
+  deployment_group_name  = "${local.stack}-client"
+  service_role_arn       = aws_iam_role.codedeploy_role.arn
+  deployment_config_name = aws_codedeploy_deployment_config.client_codedeploy.id
+
+  autoscaling_groups = aws_autoscaling_group.client_asg[*].name
+
+  auto_rollback_configuration {
+    enabled = true
+    events  = ["DEPLOYMENT_FAILURE"]
+  }
+}
+
+module "client_codepipeline_bucket" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+
+  bucket = local.client_codepipeline_bucket
+  acl    = "private"
+
+  lifecycle_rule = [
+    {
+      id      = "expire_all_files"
+      enabled = true
+
+      filter = {}
+
+      expiration = {
+        days = 10
+      }
+    }
+  ]
+
+  tags = merge(local.default_tags, {
+    Name = local.client_codepipeline_bucket
+  })
+}
+
+data "aws_iam_policy_document" "codepipeline_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codepipeline.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "client_codepipeline_role" {
+  name               = "client-codepipeline-role"
+  assume_role_policy = data.aws_iam_policy_document.codepipeline_assume_role.json
+}
+
+data "aws_iam_policy_document" "client_codepipeline_policy" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:GetBucketVersioning",
+      "s3:PutObjectAcl",
+      "s3:PutObject",
+    ]
+
+    resources = [
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
+    ]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["codestar-connections:UseConnection"]
+    resources = [aws_codestarconnections_connection.github_connection.arn]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codebuild:BatchGetBuilds",
+      "codebuild:StartBuild",
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "client_codepipeline_policy" {
+  name   = "client_codepipeline_policy"
+  role   = aws_iam_role.client_codepipeline_role.id
+  policy = data.aws_iam_policy_document.client_codepipeline_policy.json
+}
+
+resource "aws_codepipeline" "client_pipeline" {
+  name     = "${local.stack}-client-pipeline"
+  role_arn = aws_iam_role.client_codepipeline_role.arn
+
+  artifact_store {
+    location = local.client_codepipeline_bucket
+    type     = "S3"
+  }
+
+  stage {
+    name = "Source"
+
+    action {
+      name             = "Source"
+      category         = "Source"
+      owner            = "AWS"
+      provider         = "CodeStarSourceConnection"
+      version          = "1"
+      output_artifacts = ["source_output"]
+
+      configuration = {
+        ConnectionArn    = aws_codestarconnections_connection.github_connection.arn
+        FullRepositoryId = "M3L6H/michael-hollingworth-io"
+        BranchName       = "master"
+      }
+    }
+  }
+
+  stage {
+    name = "Build"
+
+    action {
+      name             = "Build"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      input_artifacts  = ["source_output"]
+      output_artifacts = ["build_output"]
+      version          = "1"
+
+      configuration = {
+        ProjectName = aws_codebuild_project.client.name
+      }
+    }
+  }
+
+  stage {
+    name = "Deploy"
+
+    action {
+      name            = "Deploy"
+      category        = "Deploy"
+      owner           = "AWS"
+      provider        = "CodeDeploy"
+      input_artifacts = ["build_output"]
+      version         = "1"
+
+      configuration = {
+        ApplicationName     = aws_codedeploy_app.client_codedeploy.name
+        DeploymentGroupName = aws_codedeploy_deployment_group.client_codedeploy.deployment_group_name
+      }
+    }
+  }
 }
