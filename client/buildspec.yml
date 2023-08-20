@@ -1,0 +1,34 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      node: 18.x
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - "echo INSTALLING DEPENDENCIES..."
+      - "npm --prefix client ci"
+      - "npx --prefix client playwright install --with-deps"
+      - "echo RUNNING TESTS..."
+      - "npm --prefix client run test:unit:ci"
+      - "npm --prefix client run test:e2e:ci"
+  build:
+    commands:
+      - "npm run build"
+
+artifacts:
+  files:
+    - client/dist/ssr/**/*
+  name: client-$(date +%Y-%m-%d)
+  discard-paths: no
+
+  secondary-artifacts:
+    playwright:
+      files:
+        - client/playwright-report/**/*
+      name: client-playwright-report-$(date +%Y-%m-%d)
+
+cache:
+  paths:
+    - './client/node_modules/**/*'
