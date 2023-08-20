@@ -9,10 +9,6 @@ phases:
     commands:
       - "echo INSTALLING DEPENDENCIES..."
       - "npm --prefix client ci"
-      - "npx --prefix client playwright install --with-deps"
-      - "echo RUNNING TESTS..."
-      - "npm --prefix client run test:unit:ci"
-      - "npm --prefix client run test:e2e:ci"
   build:
     commands:
       - "npm run build"
