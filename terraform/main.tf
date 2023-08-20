@@ -68,6 +68,12 @@ variable "client_asg_ami" {
   default     = "ami-08a52ddb321b32a8c" # Amazon Linux 2023
 }
 
+variable "github_token" {
+  type        = string
+  description = "Github token used by CodeBuild"
+  sensitive   = true
+}
+
 provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
@@ -112,6 +118,7 @@ locals {
 
   # Buckets
   client_alb_access_logs_bucket = "${local.stack}-client-alb-access-logs"
+  client_codebuild_bucket       = "${local.stack}-client-codebuild"
 }
 
 module "client_vpc" {
@@ -329,4 +336,190 @@ resource "aws_autoscaling_group" "client_asg" {
     value               = aws_launch_template.client_asg.latest_version
     propagate_at_launch = true
   }
+}
+
+module "client_codebuild_bucket" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+
+  bucket = local.client_codebuild_bucket
+  acl    = "private"
+
+  lifecycle_rule = [
+    {
+      id      = "expire_all_files"
+      enabled = true
+
+      filter = {}
+
+      expiration = {
+        days = 10
+      }
+    }
+  ]
+
+  tags = merge(local.default_tags, {
+    Name = local.client_codebuild_bucket
+  })
+}
+
+data "aws_iam_policy_document" "codebuild_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codebuild.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "client_codebuild" {
+  name               = "${local.stack}-client-codebuild-role"
+  assume_role_policy = data.aws_iam_policy_document.codebuild_assume_role.json
+}
+
+data "aws_iam_policy_document" "client_codebuild" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "ec2:CreateNetworkInterface",
+      "ec2:DescribeDhcpOptions",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DeleteNetworkInterface",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeVpcs",
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["ec2:CreateNetworkInterfacePermission"]
+    resources = ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:Subnet"
+
+      values = module.client_vpc.public_subnet_arns
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:AuthorizedService"
+      values   = ["codebuild.amazonaws.com"]
+    }
+  }
+
+  statement {
+    effect  = "Allow"
+    actions = ["s3:*"]
+    resources = [
+      module.client_codebuild_bucket.s3_bucket_arn,
+      "${module.client_codebuild_bucket.s3_bucket_arn}/*",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "client_codebuild" {
+  role   = aws_iam_role.client_codebuild.name
+  policy = data.aws_iam_policy_document.client_codebuild.json
+}
+
+resource "aws_codebuild_project" "client" {
+  name          = "${local.stack}-client"
+  description   = "Client CodeBuild project"
+  build_timeout = "5"
+  service_role  = aws_iam_role.client_codebuild.arn
+  badge_enabled = true
+
+  artifacts {
+    type = "S3"
+
+    bucket_owner_access = "FULL"
+
+    location       = local.client_codebuild_bucket
+    namespace_type = "BUILD_ID"
+    packaging      = "ZIP"
+    path           = "build"
+  }
+
+  secondary_artifacts {
+    type = "S3"
+
+    artifact_identifier = "playwright"
+    bucket_owner_access = "FULL"
+
+    location       = local.client_codebuild_bucket
+    namespace_type = "BUILD_ID"
+    packaging      = "ZIP"
+    path           = "test"
+  }
+
+  cache {
+    type     = "S3"
+    location = local.client_codebuild_bucket
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "CODEBUILD"
+
+    environment_variable {
+      name  = "NODE_ENV"
+      value = "production"
+    }
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name  = "log-group"
+      stream_name = "log-stream"
+    }
+
+    s3_logs {
+      status   = "ENABLED"
+      location = "${local.client_codebuild_bucket}/build-log"
+    }
+  }
+
+  source {
+    type            = "GITHUB"
+    location        = "https://github.com/m3l6h/michael-hollingworth-io.git"
+    git_clone_depth = 1
+    buildspec       = "client/buildspec.yml"
+
+    report_build_status = true
+  }
+
+  tags = local.default_tags
+}
+
+output "client_build_badge" {
+  value = aws_codebuild_project.client.badge_url
+}
+
+resource "aws_codebuild_source_credential" "github_token" {
+  auth_type   = "PERSONAL_ACCESS_TOKEN"
+  server_type = "GITHUB"
+  token       = var.github_token
 }
