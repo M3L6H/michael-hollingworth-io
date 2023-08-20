@@ -443,6 +443,13 @@ resource "aws_iam_role_policy" "client_codebuild" {
   policy = data.aws_iam_policy_document.client_codebuild.json
 }
 
+resource "aws_codestarconnections_connection" "github_connection" {
+  name          = "github-connection"
+  provider_type = "GitHub"
+
+  tags = local.default_tags
+}
+
 resource "aws_codebuild_project" "client" {
   name          = "${local.stack}-client"
   description   = "Client CodeBuild project"
