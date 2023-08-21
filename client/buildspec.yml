@@ -11,20 +11,17 @@ phases:
       - "npm --prefix client ci"
   build:
     commands:
-      - "npm run build"
+      - "echo INSTALLING DEPENDENCIES..."
+      - "npm --prefix client run build"
 
 artifacts:
   files:
-    - client/dist/ssr/**/*
+    - '**/*'
   name: client-$(date +%Y-%m-%d)
   discard-paths: no
-
-  secondary-artifacts:
-    playwright:
-      files:
-        - client/playwright-report/**/*
-      name: client-playwright-report-$(date +%Y-%m-%d)
+  base-directory: client/dist/ssr/
 
 cache:
   paths:
     - './client/node_modules/**/*'
+    - package-lock.json
