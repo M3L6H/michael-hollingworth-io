@@ -7,12 +7,18 @@ phases:
   pre_build:
     on-failure: ABORT
     commands:
-      - "echo INSTALLING DEPENDENCIES..."
+      - "echo Installing dependencies..."
       - "npm --prefix client ci"
   build:
     commands:
-      - "echo INSTALLING DEPENDENCIES..."
+      - "echo Running build..."
       - "npm --prefix client run build"
+  post_build:
+    commands:
+      - "echo Moving appspec file"
+      - "mv client/appspec.yml client/dist/ssr/"
+      - "echo Moving scripts"
+      - "mv client/scripts client/dist/ssr/"
 
 artifacts:
   files:

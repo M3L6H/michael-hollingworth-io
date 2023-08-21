@@ -1,0 +1,17 @@
+version: 0.0
+os: linux
+files:
+  - source: /
+    destination: /home/ec2-user/client
+file_exists_behavior: OVERWRITE
+
+hooks:
+  BeforeInstall:
+    - location: scripts/preinstall.sh
+      runas: ec2-user
+  ApplicationStart:
+    - location: scripts/appstart.sh
+      runas: ec2-user
+  ApplicationStop:
+    - location: scripts/appstop.sh
+      runas: ec2-user
