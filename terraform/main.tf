@@ -596,7 +596,7 @@ data "aws_iam_policy_document" "client_codepipeline_policy" {
       "s3:GetObjectVersion",
       "s3:GetBucketVersioning",
       "s3:PutObjectAcl",
-      "s3:PutObject",
+      "s3:PutObject"
     ]
 
     resources = [
@@ -616,7 +616,21 @@ data "aws_iam_policy_document" "client_codepipeline_policy" {
 
     actions = [
       "codebuild:BatchGetBuilds",
-      "codebuild:StartBuild",
+      "codebuild:StartBuild"
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codedeploy:CreateDeployment",
+      "codedeploy:GetApplicationRevision",
+      "codedeploy:GetDeployment",
+      "codedeploy:GetDeploymentConfig",
+      "codedeploy:RegisterApplicationRevision"
     ]
 
     resources = ["*"]
