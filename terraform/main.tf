@@ -457,18 +457,6 @@ resource "aws_codebuild_project" "client" {
     type = "CODEPIPELINE"
   }
 
-  secondary_artifacts {
-    type = "S3"
-
-    artifact_identifier = "playwright"
-    bucket_owner_access = "FULL"
-
-    location       = local.client_codebuild_bucket
-    namespace_type = "BUILD_ID"
-    packaging      = "ZIP"
-    path           = "test"
-  }
-
   cache {
     type     = "S3"
     location = local.client_codebuild_bucket
