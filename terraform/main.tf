@@ -275,6 +275,51 @@ module "client_alb" {
   ]
 }
 
+data "aws_iam_policy_document" "client_instance_profile_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "client_instance_profile" {
+  name               = "${local.stack}-client-instance-role"
+  assume_role_policy = data.aws_iam_policy_document.client_instance_profile_assume_role.json
+}
+
+resource "aws_iam_instance_profile" "client_instance_profile" {
+  name = "${local.stack}-client-instance-profile"
+  role = aws_iam_role.client_instance_profile.name
+}
+
+data "aws_iam_policy_document" "client_instance_profile" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "s3:Get*",
+      "s3:List*"
+    ]
+
+    resources = [
+      "arn:aws:s3:::aws-codedeploy-${data.aws_region.current.name}/*",
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "client_instance_profile" {
+  role   = aws_iam_role.client_instance_profile.name
+  policy = data.aws_iam_policy_document.client_instance_profile.json
+}
+
 resource "aws_launch_template" "client_asg" {
   name        = "${local.stack}-client-asg-lt"
   description = "Client ASG launch template"
@@ -285,6 +330,10 @@ resource "aws_launch_template" "client_asg" {
   key_name = aws_key_pair.client_asg.key_name
 
   user_data = filebase64("scripts/client_user_data.sh")
+
+  iam_instance_profile {
+    arn = aws_iam_instance_profile.client_instance_profile.arn
+  }
 
   vpc_security_group_ids = [
     aws_security_group.client_asg.id,
