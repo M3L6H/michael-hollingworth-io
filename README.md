@@ -1,7 +1,5 @@
 # [michaelhollingworth.io](michaelhollingworth.io)
 
-![dev build](https://codebuild.us-east-1.amazonaws.com/badges?uuid=eyJlbmNyeXB0ZWREYXRhIjoiQm1mU2NqSVdCZUFrMGxlSnhnZmE5WFBTU2kxSlM3T2ljQTV2VUZFNUFpczNpa1JrWDAxTTVlV3M4UTlNS3E3SzRKQkRqcDdmOCs2SHFFaXhGTW9NZ3FzPSIsIml2UGFyYW1ldGVyU3BlYyI6IlhyUVd4dWxXcExGN1lTcUgiLCJtYXRlcmlhbFNldFNlcmlhbCI6MX0%3D&branch=master)
-
 This repository contains the code for my personal website.
 
 ## Features
