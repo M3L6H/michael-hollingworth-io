@@ -112,6 +112,8 @@ locals {
 
   # Buckets
   client_alb_access_logs_bucket = "${local.stack}-client-alb-access-logs"
+  client_codebuild_bucket       = "${local.stack}-client-codebuild"
+  client_codepipeline_bucket    = "${local.stack}-client-codepipeline"
 }
 
 module "client_vpc" {
@@ -146,7 +148,7 @@ resource "aws_key_pair" "client_asg" {
 
 resource "aws_security_group" "http_traffic" {
   name        = "${local.stack}-client-http-sg"
-  description = "Allows HTTP and HTTPS traffic"
+  description = "Allows HTTP traffic"
   vpc_id      = module.client_vpc.vpc_id
 
   tags = merge(local.default_tags, {
@@ -157,7 +159,7 @@ resource "aws_security_group" "http_traffic" {
 resource "aws_vpc_security_group_ingress_rule" "http" {
   security_group_id = aws_security_group.http_traffic.id
 
-  description = "Allow all inbound HTTP traffic"
+  description = "Allow inbound HTTP traffic"
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 80
@@ -166,6 +168,31 @@ resource "aws_vpc_security_group_ingress_rule" "http" {
 
   tags = merge(local.default_tags, {
     Name = "${local.stack}-http-in"
+  })
+}
+
+resource "aws_security_group" "http3k_traffic" {
+  name        = "${local.stack}-client-http3k-sg"
+  description = "Allows HTTP traffic on port 3000"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-http3k-sg"
+  })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "http3000" {
+  security_group_id = aws_security_group.http3k_traffic.id
+
+  description = "Allow inbound HTTP traffic on port 3000"
+
+  cidr_ipv4   = "0.0.0.0/0"
+  from_port   = 3000
+  ip_protocol = "tcp"
+  to_port     = 3000
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-http3k-in"
   })
 }
 
@@ -194,8 +221,18 @@ resource "aws_vpc_security_group_ingress_rule" "ssh" {
   })
 }
 
-resource "aws_vpc_security_group_egress_rule" "all" {
-  security_group_id = aws_security_group.client_asg.id
+resource "aws_security_group" "client_all_egress" {
+  name        = "${local.stack}-client-all-egress-sg"
+  description = "Security group allowing all egress traffic in the client VPC"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-all-egress-sg"
+  })
+}
+
+resource "aws_vpc_security_group_egress_rule" "client_all" {
+  security_group_id = aws_security_group.client_all_egress.id
 
   description = "Allow all outbound traffic"
 
@@ -203,7 +240,7 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   ip_protocol = -1
 
   tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-asg-all-out"
+    Name = "${local.stack}-client-all-out"
   })
 }
 
@@ -244,11 +281,12 @@ module "client_alb" {
 
   name = "client-alb"
 
-  load_balancer_type = "application"
+  load_balancer_type    = "application"
+  create_security_group = false
 
   vpc_id          = module.client_vpc.vpc_id
   subnets         = module.client_vpc.public_subnets
-  security_groups = [aws_security_group.http_traffic.id]
+  security_groups = [aws_security_group.http_traffic.id, aws_security_group.client_all_egress.id]
 
   access_logs = {
     bucket  = local.client_alb_access_logs_bucket
@@ -257,9 +295,9 @@ module "client_alb" {
 
   target_groups = [
     {
-      name             = "client-tg"
+      name_prefix      = "client"
       backend_protocol = "HTTP"
-      backend_port     = 80
+      backend_port     = 3000
       target_type      = "instance"
     }
   ]
@@ -273,6 +311,51 @@ module "client_alb" {
   ]
 }
 
+data "aws_iam_policy_document" "client_instance_profile_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "client_instance_profile" {
+  name               = "${local.stack}-client-instance-role"
+  assume_role_policy = data.aws_iam_policy_document.client_instance_profile_assume_role.json
+}
+
+resource "aws_iam_instance_profile" "client_instance_profile" {
+  name = "${local.stack}-client-instance-profile"
+  role = aws_iam_role.client_instance_profile.name
+}
+
+data "aws_iam_policy_document" "client_instance_profile" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "s3:Get*",
+      "s3:List*"
+    ]
+
+    resources = [
+      "arn:aws:s3:::aws-codedeploy-${data.aws_region.current.name}/*",
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "client_instance_profile" {
+  role   = aws_iam_role.client_instance_profile.name
+  policy = data.aws_iam_policy_document.client_instance_profile.json
+}
+
 resource "aws_launch_template" "client_asg" {
   name        = "${local.stack}-client-asg-lt"
   description = "Client ASG launch template"
@@ -284,9 +367,14 @@ resource "aws_launch_template" "client_asg" {
 
   user_data = filebase64("scripts/client_user_data.sh")
 
+  iam_instance_profile {
+    arn = aws_iam_instance_profile.client_instance_profile.arn
+  }
+
   vpc_security_group_ids = [
     aws_security_group.client_asg.id,
-    aws_security_group.http_traffic.id
+    aws_security_group.http3k_traffic.id,
+    aws_security_group.client_all_egress.id
   ]
 }
 
@@ -328,5 +416,433 @@ resource "aws_autoscaling_group" "client_asg" {
     key                 = "Launch Version"
     value               = aws_launch_template.client_asg.latest_version
     propagate_at_launch = true
+  }
+}
+
+module "client_codebuild_bucket" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+
+  bucket = local.client_codebuild_bucket
+  acl    = "private"
+
+  lifecycle_rule = [
+    {
+      id      = "expire_all_files"
+      enabled = true
+
+      filter = {}
+
+      expiration = {
+        days = 10
+      }
+    }
+  ]
+
+  tags = merge(local.default_tags, {
+    Name = local.client_codebuild_bucket
+  })
+}
+
+data "aws_iam_policy_document" "codebuild_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codebuild.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "client_codebuild" {
+  name               = "${local.stack}-client-codebuild-role"
+  assume_role_policy = data.aws_iam_policy_document.codebuild_assume_role.json
+}
+
+data "aws_iam_policy_document" "client_codebuild" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "ec2:CreateNetworkInterface",
+      "ec2:DescribeDhcpOptions",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DeleteNetworkInterface",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeVpcs",
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["ec2:CreateNetworkInterfacePermission"]
+    resources = ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:Subnet"
+
+      values = module.client_vpc.public_subnet_arns
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:AuthorizedService"
+      values   = ["codebuild.amazonaws.com"]
+    }
+  }
+
+  statement {
+    effect  = "Allow"
+    actions = ["s3:*"]
+    resources = [
+      module.client_codebuild_bucket.s3_bucket_arn,
+      "${module.client_codebuild_bucket.s3_bucket_arn}/*",
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "client_codebuild" {
+  role   = aws_iam_role.client_codebuild.name
+  policy = data.aws_iam_policy_document.client_codebuild.json
+}
+
+resource "aws_codestarconnections_connection" "github_connection" {
+  name          = "github-connection"
+  provider_type = "GitHub"
+
+  tags = local.default_tags
+}
+
+resource "aws_codebuild_project" "client" {
+  name          = "${local.stack}-client"
+  description   = "Client CodeBuild project"
+  build_timeout = "5"
+  service_role  = aws_iam_role.client_codebuild.arn
+
+  artifacts {
+    type = "CODEPIPELINE"
+  }
+
+  cache {
+    type     = "S3"
+    location = local.client_codebuild_bucket
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "CODEBUILD"
+
+    environment_variable {
+      name  = "NODE_ENV"
+      value = "non_prod"
+    }
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name  = "log-group"
+      stream_name = "log-stream"
+    }
+
+    s3_logs {
+      status   = "ENABLED"
+      location = "${local.client_codebuild_bucket}/build-log"
+    }
+  }
+
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = "client/buildspec.yml"
+  }
+
+  tags = local.default_tags
+}
+
+resource "aws_codedeploy_app" "client_codedeploy" {
+  compute_platform = "Server"
+  name             = "${local.stack}-client"
+}
+
+resource "aws_codedeploy_deployment_config" "client_codedeploy" {
+  deployment_config_name = "${local.stack}-client"
+
+  minimum_healthy_hosts {
+    type  = "HOST_COUNT"
+    value = 2
+  }
+}
+
+data "aws_iam_policy_document" "codedeploy_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codedeploy.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "codedeploy_role" {
+  name               = "codedeploy-role"
+  assume_role_policy = data.aws_iam_policy_document.codedeploy_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "AWSCodeDeployRole" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+  role       = aws_iam_role.codedeploy_role.name
+}
+
+resource "aws_codedeploy_deployment_group" "client_codedeploy" {
+  app_name               = aws_codedeploy_app.client_codedeploy.name
+  deployment_group_name  = "${local.stack}-client"
+  service_role_arn       = aws_iam_role.codedeploy_role.arn
+  deployment_config_name = aws_codedeploy_deployment_config.client_codedeploy.id
+
+  autoscaling_groups = aws_autoscaling_group.client_asg[*].name
+
+  auto_rollback_configuration {
+    enabled = true
+    events  = ["DEPLOYMENT_FAILURE"]
+  }
+}
+
+module "client_codepipeline_bucket" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+
+  bucket = local.client_codepipeline_bucket
+  acl    = "private"
+
+  lifecycle_rule = [
+    {
+      id      = "expire_all_files"
+      enabled = true
+
+      filter = {}
+
+      expiration = {
+        days = 10
+      }
+    }
+  ]
+
+  tags = merge(local.default_tags, {
+    Name = local.client_codepipeline_bucket
+  })
+}
+
+data "aws_iam_policy_document" "codepipeline_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["codepipeline.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "client_codepipeline_role" {
+  name               = "client-codepipeline-role"
+  assume_role_policy = data.aws_iam_policy_document.codepipeline_assume_role.json
+}
+
+data "aws_iam_policy_document" "client_codepipeline_policy" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:GetBucketVersioning",
+      "s3:PutObjectAcl",
+      "s3:PutObject"
+    ]
+
+    resources = [
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
+    ]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["codestar-connections:UseConnection"]
+    resources = [aws_codestarconnections_connection.github_connection.arn]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codebuild:BatchGetBuilds",
+      "codebuild:StartBuild"
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codedeploy:CreateDeployment",
+      "codedeploy:GetApplicationRevision",
+      "codedeploy:GetDeployment",
+      "codedeploy:GetDeploymentConfig",
+      "codedeploy:RegisterApplicationRevision"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "client_codepipeline_policy" {
+  name   = "client_codepipeline_policy"
+  role   = aws_iam_role.client_codepipeline_role.id
+  policy = data.aws_iam_policy_document.client_codepipeline_policy.json
+}
+
+resource "aws_codepipeline" "client_pipeline" {
+  name     = "${local.stack}-client-pipeline"
+  role_arn = aws_iam_role.client_codepipeline_role.arn
+
+  artifact_store {
+    location = local.client_codepipeline_bucket
+    type     = "S3"
+  }
+
+  stage {
+    name = "Source"
+
+    action {
+      name             = "Source"
+      category         = "Source"
+      owner            = "AWS"
+      provider         = "CodeStarSourceConnection"
+      version          = "1"
+      output_artifacts = ["source_output"]
+
+      configuration = {
+        ConnectionArn    = aws_codestarconnections_connection.github_connection.arn
+        FullRepositoryId = "M3L6H/michael-hollingworth-io"
+        BranchName       = "master"
+      }
+    }
+  }
+
+  stage {
+    name = "Build"
+
+    action {
+      name             = "Build"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      input_artifacts  = ["source_output"]
+      output_artifacts = ["build_output"]
+      version          = "1"
+
+      configuration = {
+        ProjectName = aws_codebuild_project.client.name
+      }
+    }
+  }
+
+  stage {
+    name = "Deploy"
+
+    action {
+      name            = "Deploy"
+      category        = "Deploy"
+      owner           = "AWS"
+      provider        = "CodeDeploy"
+      input_artifacts = ["build_output"]
+      version         = "1"
+
+      configuration = {
+        ApplicationName     = aws_codedeploy_app.client_codedeploy.name
+        DeploymentGroupName = aws_codedeploy_deployment_group.client_codedeploy.deployment_group_name
+      }
+    }
+  }
+}
+
+data "aws_iam_policy_document" "scheduler_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "scheduler_client_codepipeline_role" {
+  name               = "scheduler-client-codepipeline-role"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume_role.json
+}
+
+data "aws_iam_policy_document" "scheduler_client_codepipeline_policy" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codepipeline:StartPipelineExecution"
+    ]
+
+    resources = [
+      aws_codepipeline.client_pipeline.arn
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "scheduler_client_codepipeline_policy" {
+  name   = "scheduler-client-codepipeline-policy"
+  role   = aws_iam_role.scheduler_client_codepipeline_role.id
+  policy = data.aws_iam_policy_document.scheduler_client_codepipeline_policy.json
+}
+
+resource "aws_scheduler_schedule" "client_pipeline" {
+  name = "${local.stack}-client-pipeline"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression = "rate(9 days)"
+
+  target {
+    arn      = aws_codepipeline.client_pipeline.arn
+    role_arn = aws_iam_role.scheduler_client_codepipeline_role.arn
   }
 }
