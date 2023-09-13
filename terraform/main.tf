@@ -148,7 +148,7 @@ resource "aws_key_pair" "client_asg" {
 
 resource "aws_security_group" "http_traffic" {
   name        = "${local.stack}-client-http-sg"
-  description = "Allows HTTP and HTTPS traffic"
+  description = "Allows HTTP traffic"
   vpc_id      = module.client_vpc.vpc_id
 
   tags = merge(local.default_tags, {
@@ -159,7 +159,7 @@ resource "aws_security_group" "http_traffic" {
 resource "aws_vpc_security_group_ingress_rule" "http" {
   security_group_id = aws_security_group.http_traffic.id
 
-  description = "Allow all inbound HTTP traffic"
+  description = "Allow inbound HTTP traffic"
 
   cidr_ipv4   = "0.0.0.0/0"
   from_port   = 80
@@ -168,6 +168,31 @@ resource "aws_vpc_security_group_ingress_rule" "http" {
 
   tags = merge(local.default_tags, {
     Name = "${local.stack}-http-in"
+  })
+}
+
+resource "aws_security_group" "http3k_traffic" {
+  name        = "${local.stack}-client-http3k-sg"
+  description = "Allows HTTP traffic on port 3000"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-http3k-sg"
+  })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "http3000" {
+  security_group_id = aws_security_group.http3k_traffic.id
+
+  description = "Allow inbound HTTP traffic on port 3000"
+
+  cidr_ipv4   = "0.0.0.0/0"
+  from_port   = 3000
+  ip_protocol = "tcp"
+  to_port     = 3000
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-http3k-in"
   })
 }
 
@@ -196,8 +221,18 @@ resource "aws_vpc_security_group_ingress_rule" "ssh" {
   })
 }
 
-resource "aws_vpc_security_group_egress_rule" "all" {
-  security_group_id = aws_security_group.client_asg.id
+resource "aws_security_group" "client_all_egress" {
+  name        = "${local.stack}-client-all-egress-sg"
+  description = "Security group allowing all egress traffic in the client VPC"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-all-egress-sg"
+  })
+}
+
+resource "aws_vpc_security_group_egress_rule" "client_all" {
+  security_group_id = aws_security_group.client_all_egress.id
 
   description = "Allow all outbound traffic"
 
@@ -205,7 +240,7 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   ip_protocol = -1
 
   tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-asg-all-out"
+    Name = "${local.stack}-client-all-out"
   })
 }
 
@@ -246,11 +281,12 @@ module "client_alb" {
 
   name = "client-alb"
 
-  load_balancer_type = "application"
+  load_balancer_type    = "application"
+  create_security_group = false
 
   vpc_id          = module.client_vpc.vpc_id
   subnets         = module.client_vpc.public_subnets
-  security_groups = [aws_security_group.http_traffic.id]
+  security_groups = [aws_security_group.http_traffic.id, aws_security_group.client_all_egress.id]
 
   access_logs = {
     bucket  = local.client_alb_access_logs_bucket
@@ -259,9 +295,9 @@ module "client_alb" {
 
   target_groups = [
     {
-      name             = "client-tg"
+      name_prefix      = "client"
       backend_protocol = "HTTP"
-      backend_port     = 80
+      backend_port     = 3000
       target_type      = "instance"
     }
   ]
@@ -337,7 +373,8 @@ resource "aws_launch_template" "client_asg" {
 
   vpc_security_group_ids = [
     aws_security_group.client_asg.id,
-    aws_security_group.http_traffic.id
+    aws_security_group.http3k_traffic.id,
+    aws_security_group.client_all_egress.id
   ]
 }
 
