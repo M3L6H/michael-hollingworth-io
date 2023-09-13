@@ -311,6 +311,11 @@ module "client_alb" {
   ]
 }
 
+output "client_alb_dns" {
+  value       = module.client_alb.lb_dns_name
+  description = "DNS name of the client ALB"
+}
+
 data "aws_iam_policy_document" "client_instance_profile_assume_role" {
   statement {
     effect = "Allow"
