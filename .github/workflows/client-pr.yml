@@ -1,8 +1,6 @@
 name: client-pr
 run-name: Client workflow for ${{ github.ref_name }}
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
 jobs:
