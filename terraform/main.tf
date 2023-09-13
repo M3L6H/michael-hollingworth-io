@@ -793,3 +793,56 @@ resource "aws_codepipeline" "client_pipeline" {
     }
   }
 }
+
+data "aws_iam_policy_document" "scheduler_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "scheduler_client_codepipeline_role" {
+  name               = "scheduler-client-codepipeline-role"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume_role.json
+}
+
+data "aws_iam_policy_document" "scheduler_client_codepipeline_policy" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "codepipeline:StartPipelineExecution"
+    ]
+
+    resources = [
+      aws_codepipeline.client_pipeline.arn
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "scheduler_client_codepipeline_policy" {
+  name   = "scheduler-client-codepipeline-policy"
+  role   = aws_iam_role.scheduler_client_codepipeline_role.id
+  policy = data.aws_iam_policy_document.scheduler_client_codepipeline_policy.json
+}
+
+resource "aws_scheduler_schedule" "client_pipeline" {
+  name = "${local.stack}-client-pipeline"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression = "rate(9 days)"
+
+  target {
+    arn      = aws_codepipeline.client_pipeline.arn
+    role_arn = aws_iam_role.scheduler_client_codepipeline_role.arn
+  }
+}
