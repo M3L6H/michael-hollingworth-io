@@ -752,7 +752,7 @@ resource "aws_codepipeline" "client_pipeline" {
       configuration = {
         ConnectionArn    = aws_codestarconnections_connection.github_connection.arn
         FullRepositoryId = "M3L6H/michael-hollingworth-io"
-        BranchName       = "master"
+        BranchName       = var.env
       }
     }
   }
