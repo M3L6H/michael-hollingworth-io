@@ -14,15 +14,6 @@ yum update
 yum install ruby -y
 which ruby >/dev/null 2>&1 && echo "Successfully installed ruby" || echo "ruby installation failed"
 
-# Install CodeDeploy agent
-echo "Installing CodeDeploy agent..."
-cd /home/ec2-user
-wget "https://aws-codedeploy-${REGION}.s3.${REGION}.amazonaws.com/latest/install"
-chmod +x ./install
-./install auto
-service codedeploy-agent status && echo "Successfully installed CodeDeploy agent" || echo "CodeDeploy agent installation failed"
-rm install
-
 # Install node 18
 echo "Installing node 18..."
 curl --silent --location https://rpm.nodesource.com/setup_18.x | bash -
@@ -33,3 +24,12 @@ which node >/dev/null 2>&1 && echo "Successfully installed node" || echo "node i
 echo "Installing pm2..."
 npm i -g pm2
 which pm2 >/dev/null 2>&1 && echo "Successfully installed pm2" || echo "pm2 installation failed"
+
+# Install CodeDeploy agent
+echo "Installing CodeDeploy agent..."
+cd /home/ec2-user
+wget "https://aws-codedeploy-${REGION}.s3.${REGION}.amazonaws.com/latest/install"
+chmod +x ./install
+./install auto
+service codedeploy-agent status && echo "Successfully installed CodeDeploy agent" || echo "CodeDeploy agent installation failed"
+rm install
