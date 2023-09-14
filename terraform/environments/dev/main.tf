@@ -64,8 +64,8 @@ variable "client_asg_instance_type" {
 
 variable "client_asg_ami" {
   type        = string
-  description = "Client ASG AMI"
-  default     = "ami-08a52ddb321b32a8c" # Amazon Linux 2023
+  description = "Name of the client ASG AMI. Defaults to AL2023"
+  default     = "al2023-ami-2023.*"
 }
 
 variable "ips_allowlist" {

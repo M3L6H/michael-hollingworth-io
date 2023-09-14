@@ -33,7 +33,7 @@ variable "client_asg_instance_type" {
 
 variable "client_asg_ami" {
   type        = string
-  description = "Client ASG AMI"
+  description = "Name of client ASG AMI"
 }
 
 variable "client_asg_min_size" {
@@ -215,12 +215,28 @@ resource "aws_iam_role_policy" "client_instance_profile" {
   policy = data.aws_iam_policy_document.client_instance_profile.json
 }
 
+# Client ASG AMI
+data "aws_ami" "client_asg" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = [var.client_asg_ami]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+}
+
 # Launch template for the client asg
 resource "aws_launch_template" "client_asg" {
   name        = "${var.stack}-client-asg-lt"
   description = "Client ASG launch template"
 
-  image_id      = var.client_asg_ami
+  image_id      = data.aws_ami.client_asg.id
   instance_type = var.client_asg_instance_type
 
   key_name = aws_key_pair.client_asg.key_name
