@@ -94,6 +94,11 @@ output "client_vpc_public_subnet_arns" {
   description = "Client VPC public subnet arns"
 }
 
+output "client_vpc_public_subnet_cidrs" {
+  value       = local.client_subnet_cidrs
+  description = "Client VPC public subnet CIDRs"
+}
+
 # Server VPC
 # Contains all the server resources
 # Private

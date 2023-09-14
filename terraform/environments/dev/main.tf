@@ -71,6 +71,7 @@ variable "client_asg_ami" {
 variable "ips_allowlist" {
   type        = list(string)
   description = "List of IP CIDRs to allowlist. Defaults to 0.0.0.0/0"
+  default     = ["0.0.0.0/0"]
 }
 
 variable "s3_file_expiration" {
@@ -98,8 +99,8 @@ locals {
   # AZ suffixes
   az_suffixes = ["a", "b", "c"]
 
-  # Are we in a dev environment
-  is_dev = var.env == "dev"
+  # Are we in a prod environment
+  is_prod = var.env == "prod"
 }
 
 locals {
@@ -110,8 +111,8 @@ locals {
   azs = [for s in local.az_suffixes : "${data.aws_region.current.name}${s}"]
 
   # Buckets
-  client_codebuild_bucket       = "${local.stack}-client-codebuild"
-  client_codepipeline_bucket    = "${local.stack}-client-codepipeline"
+  client_codebuild_bucket    = "${local.stack}-client-codebuild"
+  client_codepipeline_bucket = "${local.stack}-client-codepipeline"
 }
 
 # Network components
@@ -128,19 +129,6 @@ module "network" {
   default_tags = local.default_tags
 }
 
-resource "aws_acm_certificate" "cert" {
-  domain_name       = local.is_dev ? "dev.michaelhollingworth.io" : "michaelhollingworth.io"
-  validation_method = "DNS"
-
-  subject_alternative_names = [local.is_dev ? "*.dev.michaelhollingworth.io" : "*.michaelhollingworth.io"]
-
-  tags = local.default_tags
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
 # Compute components
 module "compute" {
   source = "../../modules/compute"
@@ -150,6 +138,31 @@ module "compute" {
   client_kp_public_key = var.client_kp_public_key
 
   default_tags = local.default_tags
+}
+
+# Load balancer components
+module "elb" {
+  source = "../../modules/elb"
+
+  stack = local.stack
+
+  env     = var.env
+  is_prod = local.is_prod
+
+  client_vpc_id                  = module.network.client_vpc_id
+  client_vpc_public_subnets      = module.network.client_vpc_public_subnets
+  client_vpc_public_subnet_cidrs = module.network.client_vpc_public_subnet_cidrs
+
+  ips_allowlist = var.ips_allowlist
+
+  s3_file_expiration = var.s3_file_expiration
+
+  default_tags = local.default_tags
+}
+
+output "client_alb_dns" {
+  value       = module.elb.client_alb_dns
+  description = "DNS name of the client ALB"
 }
 
 # resource "aws_security_group" "http_traffic" {
@@ -277,98 +290,6 @@ module "compute" {
 #   tags = merge(local.default_tags, {
 #     Name = "${local.stack}-client-all-out"
 #   })
-# }
-
-# module "client_alb_access_logs" {
-#   source = "terraform-aws-modules/s3-bucket/aws"
-
-#   bucket = local.client_alb_access_logs_bucket
-
-#   force_destroy            = true
-#   control_object_ownership = true
-
-#   attach_elb_log_delivery_policy    = true
-#   attach_lb_log_delivery_policy     = true
-#   attach_access_log_delivery_policy = true
-
-#   access_log_delivery_policy_source_accounts = [data.aws_caller_identity.current.account_id]
-
-#   lifecycle_rule = [
-#     {
-#       id      = "expire_all_files"
-#       enabled = true
-
-#       filter = {}
-
-#       expiration = {
-#         days = 10
-#       }
-#     }
-#   ]
-
-#   tags = merge(local.default_tags, {
-#     Name = local.client_alb_access_logs_bucket
-#   })
-# }
-
-# module "client_alb" {
-#   source = "terraform-aws-modules/alb/aws"
-
-#   name = "client-alb"
-
-#   load_balancer_type    = "application"
-#   create_security_group = false
-
-#   vpc_id  = module.client_vpc.vpc_id
-#   subnets = module.client_vpc.public_subnets
-#   security_groups = [
-#     aws_security_group.http_traffic.id,
-#     aws_security_group.https_traffic.id,
-#     aws_security_group.client_all_egress.id
-#   ]
-
-#   access_logs = {
-#     bucket  = local.client_alb_access_logs_bucket
-#     enabled = true
-#   }
-
-#   target_groups = [
-#     {
-#       name_prefix      = "client"
-#       backend_protocol = "HTTP"
-#       backend_port     = 3000
-#       target_type      = "instance"
-#     }
-#   ]
-
-#   https_listeners = [
-#     {
-#       port               = 443
-#       protocol           = "HTTPS"
-#       certificate_arn    = aws_acm_certificate.cert.arn
-#       target_group_index = 0
-#     }
-#   ]
-
-#   http_tcp_listeners = [
-#     {
-#       port        = 80
-#       protocol    = "HTTP"
-#       action_type = "redirect"
-#       redirect = {
-#         port        = "443"
-#         protocol    = "HTTPS"
-#         status_code = "HTTP_301"
-#       }
-#     }
-#   ]
-
-#   tags = local.default_tags
-# }
-
-# output "client_alb_dns" {
-#   value       = module.client_alb.lb_dns_name
-#   description = "DNS name of the client ALB"
 # }
 
 data "aws_iam_policy_document" "client_instance_profile_assume_role" {
