@@ -73,6 +73,12 @@ variable "ips_allowlist" {
   description = "List of IP CIDRs to allowlist. Defaults to 0.0.0.0/0"
 }
 
+variable "s3_file_expiration" {
+  type        = number
+  description = "Length of time to hold on to files"
+  default     = 90
+}
+
 provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
@@ -86,19 +92,8 @@ data "aws_caller_identity" "current" {
 }
 
 locals {
-  # Split the client/server vpc first IPs into parts
-  client_vpc_first_ip_parts = split(".", var.client_vpc_first_ip)
-  server_vpc_first_ip_parts = split(".", var.server_vpc_first_ip)
-
-  # IP network prefixes
-  main_vpc_ip_network_prefix = 16
-  subnet_ip_network_prefix   = 18
-
   # Stack name derived from project name and environment
   stack = "${var.project}-${var.env}"
-
-  # Subnet prefixes
-  client_subnet_ip_prefixes = [0, 64, 128]
 
   # AZ suffixes
   az_suffixes = ["a", "b", "c"]
@@ -114,16 +109,12 @@ locals {
 
   azs = [for s in local.az_suffixes : "${data.aws_region.current.name}${s}"]
 
-  client_vpc_cidr_block = "${var.client_vpc_first_ip}/${local.main_vpc_ip_network_prefix}"
-  client_subnet_cidrs   = [for p in local.client_subnet_ip_prefixes : "${local.client_vpc_first_ip_parts[0]}.${local.client_vpc_first_ip_parts[1]}.${p}.0/${local.subnet_ip_network_prefix}"]
-  server_vpc_cidr_block = "${var.server_vpc_first_ip}/${local.main_vpc_ip_network_prefix}"
-
   # Buckets
-  client_alb_access_logs_bucket = "${local.stack}-client-alb-access-logs"
   client_codebuild_bucket       = "${local.stack}-client-codebuild"
   client_codepipeline_bucket    = "${local.stack}-client-codepipeline"
 }
 
+# Network components
 module "network" {
   source = "../../modules/network"
 
@@ -150,11 +141,15 @@ resource "aws_acm_certificate" "cert" {
   }
 }
 
-resource "aws_key_pair" "client_asg" {
-  key_name   = "${local.stack}-client-kp"
-  public_key = var.client_kp_public_key
+# Compute components
+module "compute" {
+  source = "../../modules/compute"
 
-  tags = local.default_tags
+  stack = local.stack
+
+  client_kp_public_key = var.client_kp_public_key
+
+  default_tags = local.default_tags
 }
 
 # resource "aws_security_group" "http_traffic" {
@@ -284,37 +279,37 @@ resource "aws_key_pair" "client_asg" {
 #   })
 # }
 
-module "client_alb_access_logs" {
-  source = "terraform-aws-modules/s3-bucket/aws"
+# module "client_alb_access_logs" {
+#   source = "terraform-aws-modules/s3-bucket/aws"
 
-  bucket = local.client_alb_access_logs_bucket
+#   bucket = local.client_alb_access_logs_bucket
 
-  force_destroy            = true
-  control_object_ownership = true
+#   force_destroy            = true
+#   control_object_ownership = true
 
-  attach_elb_log_delivery_policy    = true
-  attach_lb_log_delivery_policy     = true
-  attach_access_log_delivery_policy = true
+#   attach_elb_log_delivery_policy    = true
+#   attach_lb_log_delivery_policy     = true
+#   attach_access_log_delivery_policy = true
 
-  access_log_delivery_policy_source_accounts = [data.aws_caller_identity.current.account_id]
+#   access_log_delivery_policy_source_accounts = [data.aws_caller_identity.current.account_id]
 
-  lifecycle_rule = [
-    {
-      id      = "expire_all_files"
-      enabled = true
+#   lifecycle_rule = [
+#     {
+#       id      = "expire_all_files"
+#       enabled = true
 
-      filter = {}
+#       filter = {}
 
-      expiration = {
-        days = 10
-      }
-    }
-  ]
+#       expiration = {
+#         days = 10
+#       }
+#     }
+#   ]
 
-  tags = merge(local.default_tags, {
-    Name = local.client_alb_access_logs_bucket
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = local.client_alb_access_logs_bucket
+#   })
+# }
 
 # module "client_alb" {
 #   source = "terraform-aws-modules/alb/aws"
