@@ -186,11 +186,38 @@ resource "aws_vpc_security_group_ingress_rule" "http" {
 
   cidr_ipv4   = each.key
   from_port   = 80
-  ip_protocol = "tcp"
   to_port     = 80
+  ip_protocol = "tcp"
 
   tags = merge(local.default_tags, {
     Name = "${local.stack}-http-in"
+  })
+}
+
+resource "aws_security_group" "https_traffic" {
+  name        = "${local.stack}-client-https-sg"
+  description = "Allows HTTPS traffic"
+  vpc_id      = module.client_vpc.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-client-https-sg"
+  })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "https" {
+  for_each = toset(var.ips_allowlist)
+
+  security_group_id = aws_security_group.https_traffic.id
+
+  description = "Allow inbound HTTPS traffic"
+
+  cidr_ipv4   = each.key
+  from_port   = 443
+  to_port     = 443
+  ip_protocol = "tcp"
+
+  tags = merge(local.default_tags, {
+    Name = "${local.stack}-https-in"
   })
 }
 
@@ -307,9 +334,13 @@ module "client_alb" {
   load_balancer_type    = "application"
   create_security_group = false
 
-  vpc_id          = module.client_vpc.vpc_id
-  subnets         = module.client_vpc.public_subnets
-  security_groups = [aws_security_group.http_traffic.id, aws_security_group.client_all_egress.id]
+  vpc_id  = module.client_vpc.vpc_id
+  subnets = module.client_vpc.public_subnets
+  security_groups = [
+    aws_security_group.http_traffic.id,
+    aws_security_group.https_traffic.id,
+    aws_security_group.client_all_egress.id
+  ]
 
   access_logs = {
     bucket  = local.client_alb_access_logs_bucket
@@ -325,13 +356,29 @@ module "client_alb" {
     }
   ]
 
-  http_tcp_listeners = [
+  https_listeners = [
     {
-      port               = 80
-      protocol           = "HTTP"
+      port               = 443
+      protocol           = "HTTPS"
+      certificate_arn    = aws_acm_certificate.cert.arn
       target_group_index = 0
     }
   ]
+
+  http_tcp_listeners = [
+    {
+      port        = 80
+      protocol    = "HTTP"
+      action_type = "redirect"
+      redirect = {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  ]
+
+  tags = local.default_tags
 }
 
 output "client_alb_dns" {
