@@ -165,7 +165,7 @@ resource "aws_vpc_security_group_egress_rule" "client_3k" {
   cidr_ipv4   = each.key
   from_port   = 3000
   to_port     = 3000
-  ip_protocol = -1
+  ip_protocol = "tcp"
 
   tags = merge(var.default_tags, {
     Name = "${var.stack}-port-3000-out"
@@ -240,7 +240,13 @@ module "client_alb" {
   tags = var.default_tags
 }
 
+# Client ALB outputs
 output "client_alb_dns" {
   value       = module.client_alb.lb_dns_name
   description = "DNS name of the client ALB"
+}
+
+output "client_alb_target_group_arns" {
+  value       = module.client_alb.target_group_arns
+  description = "Target group ARNs of the client ALB"
 }
