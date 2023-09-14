@@ -124,27 +124,17 @@ locals {
   client_codepipeline_bucket    = "${local.stack}-client-codepipeline"
 }
 
-module "client_vpc" {
-  source = "terraform-aws-modules/vpc/aws"
+module "network" {
+  source = "../../modules/network"
 
-  name = "${local.stack}-client-vpc"
-  cidr = local.client_vpc_cidr_block
+  stack = local.stack
 
-  azs            = local.azs
-  public_subnets = local.client_subnet_cidrs
+  azs = local.azs
 
-  map_public_ip_on_launch = true
+  client_vpc_first_ip = var.client_vpc_first_ip
+  server_vpc_first_ip = var.server_vpc_first_ip
 
-  tags = local.default_tags
-}
-
-module "server_vpc" {
-  source = "terraform-aws-modules/vpc/aws"
-
-  name = "${local.stack}-server-vpc"
-  cidr = local.server_vpc_cidr_block
-
-  tags = local.default_tags
+  default_tags = local.default_tags
 }
 
 resource "aws_acm_certificate" "cert" {
@@ -167,132 +157,132 @@ resource "aws_key_pair" "client_asg" {
   tags = local.default_tags
 }
 
-resource "aws_security_group" "http_traffic" {
-  name        = "${local.stack}-client-http-sg"
-  description = "Allows HTTP traffic"
-  vpc_id      = module.client_vpc.vpc_id
+# resource "aws_security_group" "http_traffic" {
+#   name        = "${local.stack}-client-http-sg"
+#   description = "Allows HTTP traffic"
+#   vpc_id      = module.client_vpc.vpc_id
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-http-sg"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-http-sg"
+#   })
+# }
 
-resource "aws_vpc_security_group_ingress_rule" "http" {
-  for_each = toset(var.ips_allowlist)
+# resource "aws_vpc_security_group_ingress_rule" "http" {
+#   for_each = toset(var.ips_allowlist)
 
-  security_group_id = aws_security_group.http_traffic.id
+#   security_group_id = aws_security_group.http_traffic.id
 
-  description = "Allow inbound HTTP traffic"
+#   description = "Allow inbound HTTP traffic"
 
-  cidr_ipv4   = each.key
-  from_port   = 80
-  to_port     = 80
-  ip_protocol = "tcp"
+#   cidr_ipv4   = each.key
+#   from_port   = 80
+#   to_port     = 80
+#   ip_protocol = "tcp"
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-http-in"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-http-in"
+#   })
+# }
 
-resource "aws_security_group" "https_traffic" {
-  name        = "${local.stack}-client-https-sg"
-  description = "Allows HTTPS traffic"
-  vpc_id      = module.client_vpc.vpc_id
+# resource "aws_security_group" "https_traffic" {
+#   name        = "${local.stack}-client-https-sg"
+#   description = "Allows HTTPS traffic"
+#   vpc_id      = module.client_vpc.vpc_id
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-https-sg"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-https-sg"
+#   })
+# }
 
-resource "aws_vpc_security_group_ingress_rule" "https" {
-  for_each = toset(var.ips_allowlist)
+# resource "aws_vpc_security_group_ingress_rule" "https" {
+#   for_each = toset(var.ips_allowlist)
 
-  security_group_id = aws_security_group.https_traffic.id
+#   security_group_id = aws_security_group.https_traffic.id
 
-  description = "Allow inbound HTTPS traffic"
+#   description = "Allow inbound HTTPS traffic"
 
-  cidr_ipv4   = each.key
-  from_port   = 443
-  to_port     = 443
-  ip_protocol = "tcp"
+#   cidr_ipv4   = each.key
+#   from_port   = 443
+#   to_port     = 443
+#   ip_protocol = "tcp"
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-https-in"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-https-in"
+#   })
+# }
 
-resource "aws_security_group" "http3k_traffic" {
-  name        = "${local.stack}-client-http3k-sg"
-  description = "Allows HTTP traffic on port 3000"
-  vpc_id      = module.client_vpc.vpc_id
+# resource "aws_security_group" "http3k_traffic" {
+#   name        = "${local.stack}-client-http3k-sg"
+#   description = "Allows HTTP traffic on port 3000"
+#   vpc_id      = module.client_vpc.vpc_id
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-http3k-sg"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-http3k-sg"
+#   })
+# }
 
-resource "aws_vpc_security_group_ingress_rule" "http3000" {
-  security_group_id = aws_security_group.http3k_traffic.id
+# resource "aws_vpc_security_group_ingress_rule" "http3000" {
+#   security_group_id = aws_security_group.http3k_traffic.id
 
-  description = "Allow inbound HTTP traffic on port 3000"
+#   description = "Allow inbound HTTP traffic on port 3000"
 
-  cidr_ipv4   = "0.0.0.0/0"
-  from_port   = 3000
-  ip_protocol = "tcp"
-  to_port     = 3000
+#   cidr_ipv4   = "0.0.0.0/0"
+#   from_port   = 3000
+#   ip_protocol = "tcp"
+#   to_port     = 3000
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-http3k-in"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-http3k-in"
+#   })
+# }
 
-resource "aws_security_group" "client_asg" {
-  name        = "${local.stack}-client-asg-sg"
-  description = "Client ASG security group"
-  vpc_id      = module.client_vpc.vpc_id
+# resource "aws_security_group" "client_asg" {
+#   name        = "${local.stack}-client-asg-sg"
+#   description = "Client ASG security group"
+#   vpc_id      = module.client_vpc.vpc_id
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-asg-sg"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-asg-sg"
+#   })
+# }
 
-resource "aws_vpc_security_group_ingress_rule" "ssh" {
-  security_group_id = aws_security_group.client_asg.id
+# resource "aws_vpc_security_group_ingress_rule" "ssh" {
+#   security_group_id = aws_security_group.client_asg.id
 
-  description = "Allow all inbound SSH traffic"
+#   description = "Allow all inbound SSH traffic"
 
-  cidr_ipv4   = "0.0.0.0/0"
-  from_port   = 22
-  ip_protocol = "tcp"
-  to_port     = 22
+#   cidr_ipv4   = "0.0.0.0/0"
+#   from_port   = 22
+#   ip_protocol = "tcp"
+#   to_port     = 22
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-asg-ssh-in"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-asg-ssh-in"
+#   })
+# }
 
-resource "aws_security_group" "client_all_egress" {
-  name        = "${local.stack}-client-all-egress-sg"
-  description = "Security group allowing all egress traffic in the client VPC"
-  vpc_id      = module.client_vpc.vpc_id
+# resource "aws_security_group" "client_all_egress" {
+#   name        = "${local.stack}-client-all-egress-sg"
+#   description = "Security group allowing all egress traffic in the client VPC"
+#   vpc_id      = module.client_vpc.vpc_id
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-all-egress-sg"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-all-egress-sg"
+#   })
+# }
 
-resource "aws_vpc_security_group_egress_rule" "client_all" {
-  security_group_id = aws_security_group.client_all_egress.id
+# resource "aws_vpc_security_group_egress_rule" "client_all" {
+#   security_group_id = aws_security_group.client_all_egress.id
 
-  description = "Allow all outbound traffic"
+#   description = "Allow all outbound traffic"
 
-  cidr_ipv4   = "0.0.0.0/0"
-  ip_protocol = -1
+#   cidr_ipv4   = "0.0.0.0/0"
+#   ip_protocol = -1
 
-  tags = merge(local.default_tags, {
-    Name = "${local.stack}-client-all-out"
-  })
-}
+#   tags = merge(local.default_tags, {
+#     Name = "${local.stack}-client-all-out"
+#   })
+# }
 
 module "client_alb_access_logs" {
   source = "terraform-aws-modules/s3-bucket/aws"
@@ -326,65 +316,65 @@ module "client_alb_access_logs" {
   })
 }
 
-module "client_alb" {
-  source = "terraform-aws-modules/alb/aws"
+# module "client_alb" {
+#   source = "terraform-aws-modules/alb/aws"
 
-  name = "client-alb"
+#   name = "client-alb"
 
-  load_balancer_type    = "application"
-  create_security_group = false
+#   load_balancer_type    = "application"
+#   create_security_group = false
 
-  vpc_id  = module.client_vpc.vpc_id
-  subnets = module.client_vpc.public_subnets
-  security_groups = [
-    aws_security_group.http_traffic.id,
-    aws_security_group.https_traffic.id,
-    aws_security_group.client_all_egress.id
-  ]
+#   vpc_id  = module.client_vpc.vpc_id
+#   subnets = module.client_vpc.public_subnets
+#   security_groups = [
+#     aws_security_group.http_traffic.id,
+#     aws_security_group.https_traffic.id,
+#     aws_security_group.client_all_egress.id
+#   ]
 
-  access_logs = {
-    bucket  = local.client_alb_access_logs_bucket
-    enabled = true
-  }
+#   access_logs = {
+#     bucket  = local.client_alb_access_logs_bucket
+#     enabled = true
+#   }
 
-  target_groups = [
-    {
-      name_prefix      = "client"
-      backend_protocol = "HTTP"
-      backend_port     = 3000
-      target_type      = "instance"
-    }
-  ]
+#   target_groups = [
+#     {
+#       name_prefix      = "client"
+#       backend_protocol = "HTTP"
+#       backend_port     = 3000
+#       target_type      = "instance"
+#     }
+#   ]
 
-  https_listeners = [
-    {
-      port               = 443
-      protocol           = "HTTPS"
-      certificate_arn    = aws_acm_certificate.cert.arn
-      target_group_index = 0
-    }
-  ]
+#   https_listeners = [
+#     {
+#       port               = 443
+#       protocol           = "HTTPS"
+#       certificate_arn    = aws_acm_certificate.cert.arn
+#       target_group_index = 0
+#     }
+#   ]
 
-  http_tcp_listeners = [
-    {
-      port        = 80
-      protocol    = "HTTP"
-      action_type = "redirect"
-      redirect = {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
-  ]
+#   http_tcp_listeners = [
+#     {
+#       port        = 80
+#       protocol    = "HTTP"
+#       action_type = "redirect"
+#       redirect = {
+#         port        = "443"
+#         protocol    = "HTTPS"
+#         status_code = "HTTP_301"
+#       }
+#     }
+#   ]
 
-  tags = local.default_tags
-}
+#   tags = local.default_tags
+# }
 
-output "client_alb_dns" {
-  value       = module.client_alb.lb_dns_name
-  description = "DNS name of the client ALB"
-}
+# output "client_alb_dns" {
+#   value       = module.client_alb.lb_dns_name
+#   description = "DNS name of the client ALB"
+# }
 
 data "aws_iam_policy_document" "client_instance_profile_assume_role" {
   statement {
@@ -431,68 +421,68 @@ resource "aws_iam_role_policy" "client_instance_profile" {
   policy = data.aws_iam_policy_document.client_instance_profile.json
 }
 
-resource "aws_launch_template" "client_asg" {
-  name        = "${local.stack}-client-asg-lt"
-  description = "Client ASG launch template"
+# resource "aws_launch_template" "client_asg" {
+#   name        = "${local.stack}-client-asg-lt"
+#   description = "Client ASG launch template"
 
-  image_id      = var.client_asg_ami
-  instance_type = var.client_asg_instance_type
+#   image_id      = var.client_asg_ami
+#   instance_type = var.client_asg_instance_type
 
-  key_name = aws_key_pair.client_asg.key_name
+#   key_name = aws_key_pair.client_asg.key_name
 
-  user_data = filebase64("scripts/client_user_data.sh")
+#   user_data = filebase64("scripts/client_user_data.sh")
 
-  iam_instance_profile {
-    arn = aws_iam_instance_profile.client_instance_profile.arn
-  }
+#   iam_instance_profile {
+#     arn = aws_iam_instance_profile.client_instance_profile.arn
+#   }
 
-  vpc_security_group_ids = [
-    aws_security_group.client_asg.id,
-    aws_security_group.http3k_traffic.id,
-    aws_security_group.client_all_egress.id
-  ]
-}
+#   vpc_security_group_ids = [
+#     aws_security_group.client_asg.id,
+#     aws_security_group.http3k_traffic.id,
+#     aws_security_group.client_all_egress.id
+#   ]
+# }
 
-resource "aws_autoscaling_group" "client_asg" {
-  count = length(local.az_suffixes)
+# resource "aws_autoscaling_group" "client_asg" {
+#   count = length(local.az_suffixes)
 
-  name = "${local.stack}-client-asg-${local.az_suffixes[count.index]}"
+#   name = "${local.stack}-client-asg-${local.az_suffixes[count.index]}"
 
-  min_size                  = var.client_asg_min_size
-  max_size                  = var.client_asg_max_size
-  desired_capacity          = var.client_asg_desired
-  wait_for_capacity_timeout = 0
-  health_check_type         = "EC2"
-  health_check_grace_period = 60
-  vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
+#   min_size                  = var.client_asg_min_size
+#   max_size                  = var.client_asg_max_size
+#   desired_capacity          = var.client_asg_desired
+#   wait_for_capacity_timeout = 0
+#   health_check_type         = "EC2"
+#   health_check_grace_period = 60
+#   vpc_zone_identifier       = [module.client_vpc.public_subnets[count.index]]
 
-  target_group_arns = module.client_alb.target_group_arns
+#   target_group_arns = module.client_alb.target_group_arns
 
-  termination_policies  = ["OldestLaunchConfiguration", "OldestInstance", "Default"]
-  max_instance_lifetime = 864000
+#   termination_policies  = ["OldestLaunchConfiguration", "OldestInstance", "Default"]
+#   max_instance_lifetime = 864000
 
-  instance_refresh {
-    strategy = "Rolling"
-    triggers = ["tag"]
-  }
+#   instance_refresh {
+#     strategy = "Rolling"
+#     triggers = ["tag"]
+#   }
 
-  launch_template {
-    name    = aws_launch_template.client_asg.name
-    version = aws_launch_template.client_asg.latest_version
-  }
+#   launch_template {
+#     name    = aws_launch_template.client_asg.name
+#     version = aws_launch_template.client_asg.latest_version
+#   }
 
-  tag {
-    key                 = "Stack"
-    value               = local.stack
-    propagate_at_launch = true
-  }
+#   tag {
+#     key                 = "Stack"
+#     value               = local.stack
+#     propagate_at_launch = true
+#   }
 
-  tag {
-    key                 = "Launch Version"
-    value               = aws_launch_template.client_asg.latest_version
-    propagate_at_launch = true
-  }
-}
+#   tag {
+#     key                 = "Launch Version"
+#     value               = aws_launch_template.client_asg.latest_version
+#     propagate_at_launch = true
+#   }
+# }
 
 module "client_codebuild_bucket" {
   source = "terraform-aws-modules/s3-bucket/aws"
@@ -565,24 +555,24 @@ data "aws_iam_policy_document" "client_codebuild" {
     resources = ["*"]
   }
 
-  statement {
-    effect    = "Allow"
-    actions   = ["ec2:CreateNetworkInterfacePermission"]
-    resources = ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
+  # statement {
+  #   effect    = "Allow"
+  #   actions   = ["ec2:CreateNetworkInterfacePermission"]
+  #   resources = ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
 
-    condition {
-      test     = "StringEquals"
-      variable = "ec2:Subnet"
+  #   condition {
+  #     test     = "StringEquals"
+  #     variable = "ec2:Subnet"
 
-      values = module.client_vpc.public_subnet_arns
-    }
+  #     values = module.client_vpc.public_subnet_arns
+  #   }
 
-    condition {
-      test     = "StringEquals"
-      variable = "ec2:AuthorizedService"
-      values   = ["codebuild.amazonaws.com"]
-    }
-  }
+  #   condition {
+  #     test     = "StringEquals"
+  #     variable = "ec2:AuthorizedService"
+  #     values   = ["codebuild.amazonaws.com"]
+  #   }
+  # }
 
   statement {
     effect  = "Allow"
@@ -692,19 +682,19 @@ resource "aws_iam_role_policy_attachment" "AWSCodeDeployRole" {
   role       = aws_iam_role.codedeploy_role.name
 }
 
-resource "aws_codedeploy_deployment_group" "client_codedeploy" {
-  app_name               = aws_codedeploy_app.client_codedeploy.name
-  deployment_group_name  = "${local.stack}-client"
-  service_role_arn       = aws_iam_role.codedeploy_role.arn
-  deployment_config_name = aws_codedeploy_deployment_config.client_codedeploy.id
+# resource "aws_codedeploy_deployment_group" "client_codedeploy" {
+#   app_name               = aws_codedeploy_app.client_codedeploy.name
+#   deployment_group_name  = "${local.stack}-client"
+#   service_role_arn       = aws_iam_role.codedeploy_role.arn
+#   deployment_config_name = aws_codedeploy_deployment_config.client_codedeploy.id
 
-  autoscaling_groups = aws_autoscaling_group.client_asg[*].name
+#   autoscaling_groups = aws_autoscaling_group.client_asg[*].name
 
-  auto_rollback_configuration {
-    enabled = true
-    events  = ["DEPLOYMENT_FAILURE"]
-  }
-}
+#   auto_rollback_configuration {
+#     enabled = true
+#     events  = ["DEPLOYMENT_FAILURE"]
+#   }
+# }
 
 module "client_codepipeline_bucket" {
   source = "terraform-aws-modules/s3-bucket/aws"
@@ -850,23 +840,23 @@ resource "aws_codepipeline" "client_pipeline" {
     }
   }
 
-  stage {
-    name = "Deploy"
+  # stage {
+  #   name = "Deploy"
 
-    action {
-      name            = "Deploy"
-      category        = "Deploy"
-      owner           = "AWS"
-      provider        = "CodeDeploy"
-      input_artifacts = ["build_output"]
-      version         = "1"
+  #   action {
+  #     name            = "Deploy"
+  #     category        = "Deploy"
+  #     owner           = "AWS"
+  #     provider        = "CodeDeploy"
+  #     input_artifacts = ["build_output"]
+  #     version         = "1"
 
-      configuration = {
-        ApplicationName     = aws_codedeploy_app.client_codedeploy.name
-        DeploymentGroupName = aws_codedeploy_deployment_group.client_codedeploy.deployment_group_name
-      }
-    }
-  }
+  #     configuration = {
+  #       ApplicationName     = aws_codedeploy_app.client_codedeploy.name
+  #       DeploymentGroupName = aws_codedeploy_deployment_group.client_codedeploy.deployment_group_name
+  #     }
+  #   }
+  # }
 }
 
 data "aws_iam_policy_document" "scheduler_assume_role" {
