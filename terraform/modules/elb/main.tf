@@ -50,7 +50,6 @@ variable "ips_allowlist" {
 variable "s3_file_expiration" {
   type        = number
   description = "Length of time to hold on to files"
-  default     = 90
 }
 
 variable "default_tags" {
