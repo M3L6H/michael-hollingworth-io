@@ -147,6 +147,19 @@ module "server_vpc" {
   tags = local.default_tags
 }
 
+resource "aws_acm_certificate" "cert" {
+  domain_name       = local.is_dev ? "dev.michaelhollingworth.io" : "michaelhollingworth.io"
+  validation_method = "DNS"
+
+  subject_alternative_names = [local.is_dev ? "*.dev.michaelhollingworth.io" : "*.michaelhollingworth.io"]
+
+  tags = local.default_tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 resource "aws_key_pair" "client_asg" {
   key_name   = "${local.stack}-client-kp"
   public_key = var.client_kp_public_key
