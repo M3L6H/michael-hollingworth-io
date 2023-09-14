@@ -3,8 +3,9 @@
 env="dev"
 [ -z "$1" ] || env="$1"
 
+envdir="environments/${env}"
 plan="${env}.tfplan"
 preview="${plan}.preview"
-out="${env}.tfout"
+out="${envdir}/${env}.tfout"
 
-terraform apply "$plan" | tee "$out"
+terraform -chdir="$envdir" apply "$plan" | tee "$out"
