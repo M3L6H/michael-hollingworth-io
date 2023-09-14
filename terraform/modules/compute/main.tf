@@ -109,6 +109,7 @@ resource "aws_key_pair" "client_asg" {
 
 # Security group for the client_asg
 # Allows port 3000 traffic
+# Allows egress traffic on 443
 resource "aws_security_group" "client_asg" {
   name        = "${var.stack}-client-asg-sg"
   description = "Client ASG security group"
@@ -132,7 +133,7 @@ resource "aws_vpc_security_group_ingress_rule" "client_3k" {
   ip_protocol = "tcp"
 
   tags = merge(var.default_tags, {
-    Name = "${var.stack}-client-asg-ssh-in"
+    Name = "${var.stack}-client-asg-3k-in"
   })
 }
 
@@ -150,6 +151,21 @@ resource "aws_vpc_security_group_ingress_rule" "client_ssh" {
 
   tags = merge(var.default_tags, {
     Name = "${var.stack}-client-asg-ssh-in"
+  })
+}
+
+resource "aws_vpc_security_group_egress_rule" "client_443" {
+  security_group_id = aws_security_group.client_asg.id
+
+  description = "Allow outbound 443 traffic"
+
+  cidr_ipv4   = "0.0.0.0/0"
+  from_port   = 443
+  to_port     = 443
+  ip_protocol = "tcp"
+
+  tags = merge(var.default_tags, {
+    Name = "${var.stack}-client-asg-443-out"
   })
 }
 
@@ -258,4 +274,10 @@ resource "aws_autoscaling_group" "client_asg" {
     value               = aws_launch_template.client_asg.latest_version
     propagate_at_launch = true
   }
+}
+
+# Client ASG outputs
+output client_asg_names {
+  value       = aws_autoscaling_group.client_asg[*].name
+  description = "List of names of the client ASGs"
 }
