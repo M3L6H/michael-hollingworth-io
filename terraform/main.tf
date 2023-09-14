@@ -68,6 +68,11 @@ variable "client_asg_ami" {
   default     = "ami-08a52ddb321b32a8c" # Amazon Linux 2023
 }
 
+variable "ips_allowlist" {
+  type        = list(string)
+  description = "List of IP CIDRs to allowlist. Defaults to 0.0.0.0/0"
+}
+
 provider "aws" {
   profile = "michaelhollingworth-io-tf"
 }
@@ -97,6 +102,9 @@ locals {
 
   # AZ suffixes
   az_suffixes = ["a", "b", "c"]
+
+  # Are we in a dev environment
+  is_dev = var.env == "dev"
 }
 
 locals {
@@ -157,11 +165,13 @@ resource "aws_security_group" "http_traffic" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "http" {
+  for_each = toset(var.ips_allowlist)
+
   security_group_id = aws_security_group.http_traffic.id
 
   description = "Allow inbound HTTP traffic"
 
-  cidr_ipv4   = "0.0.0.0/0"
+  cidr_ipv4   = each.key
   from_port   = 80
   ip_protocol = "tcp"
   to_port     = 80
@@ -309,6 +319,11 @@ module "client_alb" {
       target_group_index = 0
     }
   ]
+}
+
+output "client_alb_dns" {
+  value       = module.client_alb.lb_dns_name
+  description = "DNS name of the client ALB"
 }
 
 data "aws_iam_policy_document" "client_instance_profile_assume_role" {
