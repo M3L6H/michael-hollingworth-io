@@ -47,3 +47,6 @@ quasar.config.*.temporary.compiled*/
 # Exclude all keys
 *.pem
 *.pub
+
+# Exclude all zip files
+*.zip

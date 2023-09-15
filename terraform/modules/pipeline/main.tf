@@ -107,6 +107,145 @@ output "client_codepipeline_s3_bucket_arn" {
   description = "ARN of the client CodePipeline bucket"
 }
 
+# IAM role for cleanup lambda function
+data "aws_iam_policy_document" "lambda_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "cleanup_lambda" {
+  name               = "${var.stack}-cleanup-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "cleanup_lambda" {
+  statement {
+    effect  = "Allow"
+    actions = [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:GetObjectAttributes",
+      "s3:ListBucket"
+    ]
+    resources = [
+      module.client_codebuild_bucket.s3_bucket_arn,
+      "${module.client_codebuild_bucket.s3_bucket_arn}/*",
+      module.client_codepipeline_bucket.s3_bucket_arn,
+      "${module.client_codepipeline_bucket.s3_bucket_arn}/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "cleanup_lambda" {
+  role   = aws_iam_role.cleanup_lambda.name
+  policy = data.aws_iam_policy_document.cleanup_lambda.json
+}
+
+resource "aws_iam_role_policy_attachment" "cleanup_lambda_basic_execution" {
+  role       = aws_iam_role.cleanup_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Lambda function for cleaning buckets
+data "archive_file" "cleanup_lambda" {
+  type             = "zip"
+  source_file      = "${path.module}/lambda/cleanup/lambda_function.py"
+  output_file_mode = "0666"
+  output_path      = "${path.module}/lambda/cleanup.zip"
+}
+
+resource "aws_lambda_function" "cleanup_lambda" {
+  filename      = "${path.module}/lambda/cleanup.zip"
+  function_name = "${var.stack}-cleanup-lambda"
+  description   = "Lambda used to clean Code* buckets"
+  role          = aws_iam_role.cleanup_lambda.arn
+
+  source_code_hash = data.archive_file.cleanup_lambda.output_base64sha256
+
+  handler = "lambda_function.lambda_handler"
+  runtime = "python3.11"
+  timeout = 90
+
+  tags = var.default_tags
+}
+
+# IAM role for cleanup scheduler
+data "aws_iam_policy_document" "scheduler_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "cleanup_scheduler" {
+  name               = "${var.stack}-cleanup-scheduler-role"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume_role.json
+}
+
+data "aws_iam_policy_document" "cleanup_scheduler" {
+  statement {
+    effect  = "Allow"
+    actions = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.cleanup_lambda.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "cleanup_scheduler" {
+  role   = aws_iam_role.cleanup_scheduler.name
+  policy = data.aws_iam_policy_document.cleanup_scheduler.json
+}
+
+# Scheduler schedule for invoking cleanup lambda
+resource "aws_scheduler_schedule" "cleanup_lambda" {
+  name = "${var.stack}-cleanup-schedule"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression = "rate(${var.s3_file_expiration} days)"
+
+  target {
+    arn      = aws_lambda_function.cleanup_lambda.arn
+    role_arn = aws_iam_role.cleanup_scheduler.arn
+
+    input = jsonencode({
+      bucketEntries = [
+        {
+          bucket = local.client_codebuild_bucket
+          prefixes = [
+            "build-log/"
+          ]
+        },
+        {
+          bucket = local.client_codepipeline_bucket
+          prefixes = [
+            "michaelhollingworth-/build_outp/",
+            "michaelhollingworth-/source_out/"
+          ]
+        }
+      ]
+
+      minAge      = var.s3_file_expiration
+      backupCount = var.is_prod ? 4 : 2
+    })
+  }
+}
+
 # IAM role for codebuild
 data "aws_iam_policy_document" "codebuild_assume_role" {
   statement {
