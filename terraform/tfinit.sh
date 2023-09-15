@@ -5,5 +5,4 @@ env="dev"
 
 envdir="environments/${env}"
 
-terraform -chdir="$envdir" fmt
-terraform -chdir="$envdir" validate
+terraform -chdir="$envdir" init
